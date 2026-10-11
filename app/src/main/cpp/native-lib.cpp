@@ -12,8 +12,7 @@ static FridaDevice* g_dev = nullptr;
 static FridaSession* g_sess = nullptr;
 static FridaScript* g_script = nullptr;
 
-static void on_message(FridaScript* s, const gchar* message,
-                       const guint8* data, gint len, gpointer ud) {
+static void on_message(FridaScript* s, const gchar* message, gpointer a, gpointer b) {
     if (!g_vm || !g_bridge) return;
     JNIEnv* env = nullptr;
     g_vm->AttachCurrentThread(&env, nullptr);
@@ -31,12 +30,13 @@ Java_com_adturbo_app_Frida_attach(JNIEnv* env, jobject, jstring pkg, jstring sou
         g_dev = frida_device_manager_get_device_by_type_sync(
                     g_mgr, FRIDA_DEVICE_TYPE_LOCAL, 5000, nullptr, nullptr);
     }
-    FridaProcess* proc = frida_device_get_process_by_name_sync(g_dev, cpkg, nullptr, nullptr);
+    FridaProcess* proc = frida_device_get_process_by_name_sync(
+                            g_dev, cpkg, nullptr, nullptr, nullptr);
     if (!proc) { LOGI("no process %s", cpkg); return; }
     gint pid = frida_process_get_pid(proc);
-    g_sess = frida_device_attach_sync(g_dev, pid, nullptr, nullptr);
-    g_script = frida_session_create_script_sync(g_sess, csrc, nullptr, nullptr);
-    frida_script_on(g_script, "message", (GCallback) on_message, nullptr);
+    g_sess = frida_device_attach_sync(g_dev, pid, nullptr, nullptr, nullptr);
+    g_script = frida_session_create_script_sync(g_sess, csrc, nullptr, nullptr, nullptr);
+    g_signal_connect(g_script, "message", G_CALLBACK(on_message), nullptr);
     frida_script_load_sync(g_script, nullptr, nullptr);
     LOGI("attached %s pid=%d", cpkg, pid);
     env->ReleaseStringUTFChars(pkg, cpkg);
