@@ -3,6 +3,7 @@ package com.adturbo.app
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -21,20 +22,26 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(1, notif())
+        try {
+            if (Build.VERSION.SDK_INT >= 34)
+                startForeground(1, notif(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            else startForeground(1, notif())
+        } catch (e: Exception) {}
+
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val pad = dp(10)
+        val pad = dp(12)
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#E60B0F14")); cornerRadius = dp(14).toFloat()
+                setColor(Color.parseColor("#F20B0F14")); cornerRadius = dp(16).toFloat()
+                setStroke(dp(1), Color.parseColor("#2EE6C6"))
             }
             setPadding(pad, pad, pad, pad)
         }
         col.addView(TextView(this).apply {
-            text = "AdTurbo"; setTextColor(Color.parseColor("#2EE6C6"))
+            text = "AdTurbo"; setTextColor(Color.parseColor("#2EE6C6")); textSize = 14f
         })
-        val rateLabel = TextView(this).apply { setTextColor(Color.WHITE); text = "Ads: 600 / min" }
+        val rateLabel = TextView(this).apply { setTextColor(Color.WHITE); text = "Ads: 600 / min"; textSize = 12f }
         col.addView(rateLabel)
         col.addView(SeekBar(this).apply {
             max = 9900; progress = 500
@@ -61,13 +68,13 @@ class OverlayService : Service() {
         val lp = WindowManager.LayoutParams(
             dp(150), WindowManager.LayoutParams.WRAP_CONTENT, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = 16; y = 200 }
-        wm.addView(view, lp)
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = 20; y = 220 }
+        try { wm.addView(view, lp) } catch (e: Exception) {}
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (::view.isInitialized) wm.removeView(view)
+        try { if (::view.isInitialized) wm.removeView(view) } catch (e: Exception) {}
     }
 
     private fun notif(): Notification {

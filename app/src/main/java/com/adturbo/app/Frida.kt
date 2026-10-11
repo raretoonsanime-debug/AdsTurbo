@@ -5,7 +5,7 @@ object Frida {
 
     init { System.loadLibrary("adturbo") }
 
-    external fun attach(pkg: String, source: String)
+    external fun attach(pkg: String, source: String): String
     external fun post(json: String)
     external fun detach()
 

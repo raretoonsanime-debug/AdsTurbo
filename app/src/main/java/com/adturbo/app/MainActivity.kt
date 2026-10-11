@@ -22,13 +22,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var content: FrameLayout
     private lateinit var logView: TextView
     private lateinit var statusView: TextView
+    private var rootStatView: TextView? = null
     private val root = RootShell()
 
     private var adsPerMin = 600
     private var injectDelay = 3
     private var armMode = false
+    private var rootOk: Boolean? = null
 
     private val TEAL = Color.parseColor("#2EE6C6")
+    private val RED = Color.parseColor("#FF6B6B")
     private val BG = Color.parseColor("#0B0F14")
     private val PANEL = Color.parseColor("#0F141B")
     private val CARD = Color.parseColor("#161D26")
@@ -46,13 +49,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(build())
         askOverlay()
         screen("Home")
+        checkRootAsync()
     }
 
     private fun build(): View {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(BG)
-        }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(BG) }
         val side = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(PANEL)
@@ -60,8 +61,7 @@ class MainActivity : AppCompatActivity() {
         }
         side.addView(ImageView(this).apply {
             setImageResource(R.drawable.ic_logo)
-            layoutParams = LinearLayout.LayoutParams(dp(34), dp(34))
-                .apply { gravity = Gravity.CENTER_HORIZONTAL }
+            layoutParams = LinearLayout.LayoutParams(dp(34), dp(34)).apply { gravity = Gravity.CENTER_HORIZONTAL }
         })
         side.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(22)) })
         listOf("Home", "Games", "Mods", "Logs", "Settings").forEach { side.addView(navItem(it)) }
@@ -75,7 +75,7 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor("#05070A"))
             setPadding(dp(12), dp(7), dp(12), dp(7))
             maxLines = 1; ellipsize = TextUtils.TruncateAt.START
-            text = "ready"
+            text = "checking root…"
         }
         col.addView(statusView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
@@ -91,14 +91,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun screen(name: String) {
         content.removeAllViews()
-        val v = when (name) {
+        content.addView(when (name) {
             "Home" -> homeScreen()
             "Games" -> gamesScreen()
             "Mods" -> modsScreen()
             "Logs" -> logsScreen()
             else -> settingsScreen()
-        }
-        content.addView(v)
+        })
     }
 
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
@@ -106,8 +105,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun title(t: String) = TextView(this).apply {
-        text = t; setTextColor(TEXT); textSize = 22f
-        setPadding(0, 0, 0, dp(12))
+        text = t; setTextColor(TEXT); textSize = 22f; setPadding(0, 0, 0, dp(12))
     }
 
     private fun card(): LinearLayout = LinearLayout(this).apply {
@@ -134,15 +132,15 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(20), dp(20), dp(20), dp(20))
         }
         v.addView(TextView(this).apply { text = "Welcome back,"; setTextColor(MUTED); textSize = 14f })
-        v.addView(TextView(this).apply {
-            text = "Player"; setTextColor(TEXT); textSize = 26f
-            setPadding(0, 0, 0, dp(18))
-        })
+        v.addView(TextView(this).apply { text = "Player"; setTextColor(TEXT); textSize = 26f; setPadding(0, 0, 0, dp(18)) })
 
         val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        stats.addView(statCard("Ads / min", "$adsPerMin"), weight())
-        stats.addView(statCard("Mode", if (armMode) "ARM" else "x86"), weight())
-        stats.addView(statCard("Root", "OK"), weight())
+        stats.addView(statCard("Ads / min", "$adsPerMin", TEAL), weight())
+        stats.addView(statCard("Mode", if (armMode) "ARM" else "x86", TEAL), weight())
+        rootStatView = statCard("Root",
+            when (rootOk) { true -> "granted"; false -> "DENIED"; null -> "checking" },
+            if (rootOk == false) RED else TEAL)
+        stats.addView(rootStatView, weight())
         v.addView(stats)
 
         v.addView(space(16))
@@ -155,15 +153,17 @@ class MainActivity : AppCompatActivity() {
     private fun weight() = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         .apply { rightMargin = dp(10) }
 
-    private fun statCard(label: String, value: String): View {
+    private fun statCard(label: String, value: String, col: Int): TextView {
         val c = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(CARD, 14)
             setPadding(dp(14), dp(14), dp(14), dp(14))
         }
         c.addView(TextView(this).apply { text = label; setTextColor(MUTED); textSize = 11f })
-        c.addView(TextView(this).apply { text = value; setTextColor(TEAL); textSize = 20f })
-        return c
+        val valv = TextView(this).apply { text = value; setTextColor(col); textSize = 18f }
+        c.addView(valv)
+        c.tag = valv
+        return valv
     }
 
     private fun linkCard(t: String, sub: String, target: String): View {
@@ -192,13 +192,10 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(20), dp(20), dp(20), dp(20))
         }
         v.addView(title("Games"))
-
         val search = EditText(this).apply { hint = "Search apps" }
         v.addView(search)
-
         val manual = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(8), 0, dp(8))
         }
         val pkgField = EditText(this).apply { hint = "or type package name" }
@@ -220,9 +217,8 @@ class MainActivity : AppCompatActivity() {
         fun render(q: String) {
             list.removeAllViews()
             apps.filter {
-                q.isEmpty() ||
-                    pm.getApplicationLabel(it).toString().lowercase().contains(q) ||
-                    it.packageName.lowercase().contains(q)
+                q.isEmpty() || pm.getApplicationLabel(it).toString().lowercase().contains(q) ||
+                it.packageName.lowercase().contains(q)
             }.forEach { list.addView(appRow(it)) }
         }
         search.addTextChangedListener(object : android.text.TextWatcher {
@@ -237,10 +233,8 @@ class MainActivity : AppCompatActivity() {
     private fun appRow(ai: ApplicationInfo): View {
         val pm = packageManager
         val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = rounded(CARD, 14)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = rounded(CARD, 14); setPadding(dp(12), dp(12), dp(12), dp(12))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8) }
@@ -249,10 +243,7 @@ class MainActivity : AppCompatActivity() {
             setImageDrawable(pm.getApplicationIcon(ai))
             layoutParams = LinearLayout.LayoutParams(dp(38), dp(38))
         })
-        val mid = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), 0, dp(8), 0)
-        }
+        val mid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, dp(8), 0) }
         mid.addView(TextView(this).apply {
             text = pm.getApplicationLabel(ai); setTextColor(TEXT); textSize = 14f
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END
@@ -268,11 +259,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun modsScreen(): View {
         val v = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
+            orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(20), dp(20), dp(20))
         }
         v.addView(title("Mods"))
-
         val rateCard = card()
         rateCard.addView(TextView(this).apply { text = "Ads / min"; setTextColor(TEXT); textSize = 15f })
         val valLbl = TextView(this).apply { text = "$adsPerMin"; setTextColor(TEAL); textSize = 20f }
@@ -281,8 +270,7 @@ class MainActivity : AppCompatActivity() {
             max = 9900; progress = adsPerMin - 100
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, p: Int, f: Boolean) {
-                    adsPerMin = p + 100
-                    valLbl.text = "$adsPerMin"
+                    adsPerMin = p + 100; valLbl.text = "$adsPerMin"
                     Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
                 }
                 override fun onStartTrackingTouch(sb: SeekBar?) {}
@@ -290,13 +278,10 @@ class MainActivity : AppCompatActivity() {
             })
         })
         v.addView(rateCard)
-
         listOf("Ads Bypass #1", "Ads Bypass #2").forEachIndexed { i, t ->
             val c = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                background = rounded(CARD, 16)
-                setPadding(dp(16), dp(16), dp(16), dp(16))
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                background = rounded(CARD, 16); setPadding(dp(16), dp(16), dp(16), dp(16))
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { bottomMargin = dp(12) }
@@ -315,8 +300,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun logsScreen(): View {
         val v = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
+            orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(20), dp(20), dp(20))
         }
         v.addView(title("Logs"))
         logView = TextView(this).apply {
@@ -331,23 +315,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun settingsScreen(): View {
         val v = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
+            orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(20), dp(20), dp(20))
         }
         v.addView(title("Settings"))
-
         val d = card()
         d.addView(TextView(this).apply { text = "Injection delay"; setTextColor(MUTED); textSize = 12f })
         val dl = TextView(this).apply { text = "${injectDelay}s"; setTextColor(TEAL); textSize = 22f }
         d.addView(dl)
         val dRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        dRow.addView(pill("-", CARD, TEXT) {
-            if (injectDelay > 0) injectDelay--; dl.text = "${injectDelay}s"
-        })
+        dRow.addView(pill("-", CARD, TEXT) { if (injectDelay > 0) injectDelay--; dl.text = "${injectDelay}s" })
         dRow.addView(space(10))
-        dRow.addView(pill("+", CARD, TEXT) {
-            if (injectDelay < 30) injectDelay++; dl.text = "${injectDelay}s"
-        })
+        dRow.addView(pill("+", CARD, TEXT) { if (injectDelay < 30) injectDelay++; dl.text = "${injectDelay}s" })
         d.addView(dRow)
         v.addView(d)
 
@@ -358,43 +336,61 @@ class MainActivity : AppCompatActivity() {
         a.addView(sw)
         v.addView(a)
 
-        val i = card()
-        i.addView(TextView(this).apply { text = "AdTurbo"; setTextColor(TEXT); textSize = 15f })
-        i.addView(TextView(this).apply {
-            text = "Frida-based ad bypass. Root required."; setTextColor(MUTED); textSize = 12f
+        val r = card()
+        r.addView(TextView(this).apply { text = "Root"; setTextColor(TEXT); textSize = 15f })
+        r.addView(TextView(this).apply {
+            text = when (rootOk) { true -> "granted"; false -> "DENIED — grant root to AdTurbo"; null -> "checking…" }
+            setTextColor(if (rootOk == false) RED else MUTED); textSize = 12f
         })
-        v.addView(i)
+        r.addView(pill("Re-check", CARD, TEXT) { checkRootAsync() })
+        v.addView(r)
         return v
     }
 
     private fun wrap(v: View) = ScrollView(this).apply { addView(v) }
     private fun space(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(h)) }
 
-    private fun abiOf(ai: ApplicationInfo): String {
-        return try {
-            (ApplicationInfo::class.java.getField("primaryCpuAbi").get(ai) as? String) ?: ""
-        } catch (e: Exception) { "" }
+    private fun checkRootAsync() {
+        statusView.text = "checking root…"
+        Thread {
+            val ok = try { root.run("id").contains("uid=0") } catch (e: Exception) { false }
+            rootOk = ok
+            runOnUiThread {
+                statusView.text = if (ok) "root: granted" else "root: DENIED — grant root to AdTurbo"
+                statusView.setTextColor(if (ok) TEAL else RED)
+                rootStatView?.text = if (ok) "granted" else "DENIED"
+                rootStatView?.setTextColor(if (ok) TEAL else RED)
+            }
+        }.start()
     }
 
     private fun inject(pkg: String) {
         if (pkg.isEmpty()) { toast("enter a package"); return }
         if (::logView.isInitialized) logView.append(">> inject $pkg\n")
-        val arm = armMode
-        val abi = if (arm) "arm64-v8a" else "x86_64"
+        if (rootOk == false) { toast("No root! grant root to AdTurbo"); return }
+        val abi = if (armMode) "arm64-v8a" else "x86_64"
         try {
             packageManager.getLaunchIntentForPackage(pkg)?.let {
                 it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(it)
             }
         } catch (e: Exception) {}
+        toast("launching… injecting in ${injectDelay}s")
         content.postDelayed({
             try {
                 val server = installServer(abi)
                 root.run("$server &")
                 val agent = assets.open("agent.js").bufferedReader().readText()
-                Frida.attach(pkg, agent)
-                Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
-                startService(Intent(this, OverlayService::class.java))
-                toast("injected $pkg")
+                val res = Frida.attach(pkg, agent)
+                if (res == "ok") {
+                    Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
+                    toast("Injected OK ✓  panel is on the game")
+                    statusView.text = "injected $pkg"
+                    try { startForegroundService(Intent(this, OverlayService::class.java)) }
+                    catch (e: Exception) { toast("overlay: ${e.message}") }
+                } else {
+                    toast("Inject FAILED: $res")
+                    statusView.text = "failed: $res"
+                }
             } catch (e: Exception) { toast("ERROR: ${e.message}") }
         }, (injectDelay * 1000).toLong())
     }

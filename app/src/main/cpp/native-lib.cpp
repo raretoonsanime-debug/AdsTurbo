@@ -21,7 +21,7 @@ static void on_message(FridaScript* s, const gchar* message, gpointer a, gpointe
     env->DeleteLocalRef(js);
 }
 
-extern "C" JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jstring JNICALL
 Java_com_adturbo_app_Frida_attach(JNIEnv* env, jobject, jstring pkg, jstring source) {
     const char* cpkg = env->GetStringUTFChars(pkg, nullptr);
     const char* csrc = env->GetStringUTFChars(source, nullptr);
@@ -32,15 +32,19 @@ Java_com_adturbo_app_Frida_attach(JNIEnv* env, jobject, jstring pkg, jstring sou
     }
     FridaProcess* proc = frida_device_get_process_by_name_sync(
                             g_dev, cpkg, nullptr, nullptr, nullptr);
-    if (!proc) { LOGI("no process %s", cpkg); return; }
+    if (!proc) return env->NewStringUTF("process not found - open the game first");
+
     gint pid = frida_process_get_pid(proc);
-    g_sess = frida_device_attach_sync(g_dev, pid, nullptr, nullptr, nullptr);
-    g_script = frida_session_create_script_sync(g_sess, csrc, nullptr, nullptr, nullptr);
+    GError* err = nullptr;
+    g_sess = frida_device_attach_sync(g_dev, pid, nullptr, nullptr, &err);
+    if (err) return env->NewStringUTF(err->message);
+    g_script = frida_session_create_script_sync(g_sess, csrc, nullptr, nullptr, &err);
+    if (err) return env->NewStringUTF(err->message);
     g_signal_connect(g_script, "message", G_CALLBACK(on_message), nullptr);
-    frida_script_load_sync(g_script, nullptr, nullptr);
+    frida_script_load_sync(g_script, nullptr, &err);
+    if (err) return env->NewStringUTF(err->message);
     LOGI("attached %s pid=%d", cpkg, pid);
-    env->ReleaseStringUTFChars(pkg, cpkg);
-    env->ReleaseStringUTFChars(source, csrc);
+    return env->NewStringUTF("ok");
 }
 
 extern "C" JNIEXPORT void JNICALL
