@@ -157,10 +157,11 @@ class MainActivity : AppCompatActivity() {
         val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         stats.addView(statCard("Ads / min", "$adsPerMin", TEAL), weight())
         stats.addView(statCard("Mode", if (armMode) "ARM" else "x86", TEAL), weight())
-        rootStatView = statCard("Root",
+        val rc = statCard("Root",
             when (rootOk) { true -> "granted"; false -> "DENIED"; null -> "checking" },
             if (rootOk == false) RED else TEAL)
-        stats.addView(rootStatView, weight())
+        rootStatView = rc.tag as TextView
+        stats.addView(rc, weight())
         v.addView(stats)
 
         v.addView(space(16))
@@ -173,7 +174,7 @@ class MainActivity : AppCompatActivity() {
     private fun weight() = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         .apply { rightMargin = dp(10) }
 
-    private fun statCard(label: String, value: String, col: Int): TextView {
+    private fun statCard(label: String, value: String, col: Int): LinearLayout {
         val c = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(CARD, 14)
@@ -183,7 +184,7 @@ class MainActivity : AppCompatActivity() {
         val valv = TextView(this).apply { text = value; setTextColor(col); textSize = 18f }
         c.addView(valv)
         c.tag = valv
-        return valv
+        return c
     }
 
     private fun linkCard(t: String, sub: String, target: String): View {
