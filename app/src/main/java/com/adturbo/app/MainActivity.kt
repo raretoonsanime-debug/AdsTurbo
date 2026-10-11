@@ -20,7 +20,7 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
 
     private lateinit var content: FrameLayout
-    private lateinit var logView: TextView
+    private var logView: TextView? = null
     private lateinit var statusView: TextView
     private var rootStatView: TextView? = null
     private val root = RootShell()
@@ -29,6 +29,8 @@ class MainActivity : AppCompatActivity() {
     private var injectDelay = 3
     private var armMode = false
     private var rootOk: Boolean? = null
+    private var nativeOk = true
+    private var nativeErr = ""
 
     private val TEAL = Color.parseColor("#2EE6C6")
     private val RED = Color.parseColor("#FF6B6B")
@@ -42,14 +44,26 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Frida.logListener = { line -> runOnUiThread {
-            logView.append("$line\n")
-            statusView.text = line
-        } }
+        Thread.setDefaultUncaughtExceptionHandler { _, e ->
+            val msg = "CRASH: ${e.javaClass.simpleName}: ${e.message}"
+            android.util.Log.e("AdTurbo", msg, e)
+            try { Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show() } catch (_: Throwable) {}
+            try { File(filesDir, "crash.txt").writeText(msg + "\n" + e.stackTraceToString()) } catch (_: Throwable) {}
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
+        try {
+            Frida.logListener = { line -> runOnUiThread {
+                logView?.append("$line\n")
+                statusView.text = line
+            } }
+        } catch (e: Throwable) {
+            nativeOk = false
+            nativeErr = e.javaClass.simpleName + ": " + e.message
+        }
         setContentView(build())
         askOverlay()
         screen("Home")
-        checkRootAsync()
+        if (nativeOk) checkRootAsync() else statusView.text = "native lib failed: $nativeErr"
     }
 
     private fun build(): View {
@@ -366,8 +380,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun inject(pkg: String) {
         if (pkg.isEmpty()) { toast("enter a package"); return }
-        if (::logView.isInitialized) logView.append(">> inject $pkg\n")
+        logView?.append(">> inject $pkg\n")
         if (rootOk == false) { toast("No root! grant root to AdTurbo"); return }
+        if (!nativeOk) { toast("native lib failed: $nativeErr"); return }
         val abi = if (armMode) "arm64-v8a" else "x86_64"
         try {
             packageManager.getLaunchIntentForPackage(pkg)?.let {
