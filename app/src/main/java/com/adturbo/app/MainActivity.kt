@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -20,21 +21,28 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var content: FrameLayout
     private lateinit var logView: TextView
+    private lateinit var statusView: TextView
     private val root = RootShell()
 
     private var adsPerMin = 600
+    private var injectDelay = 3
+    private var armMode = false
+
     private val TEAL = Color.parseColor("#2EE6C6")
     private val BG = Color.parseColor("#0B0F14")
-    private val PANEL = Color.parseColor("#10161D")
-    private val CARD = Color.parseColor("#1A222C")
+    private val PANEL = Color.parseColor("#0F141B")
+    private val CARD = Color.parseColor("#161D26")
     private val TEXT = Color.parseColor("#EAF2F0")
-    private val MUTED = Color.parseColor("#8A97A3")
+    private val MUTED = Color.parseColor("#7C8A97")
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Frida.logListener = { line -> runOnUiThread { logView.append("$line\n") } }
+        Frida.logListener = { line -> runOnUiThread {
+            logView.append("$line\n")
+            statusView.text = line
+        } }
         setContentView(build())
         askOverlay()
         screen("Home")
@@ -45,109 +53,159 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(BG)
         }
-
         val side = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(PANEL)
-            setPadding(dp(6), dp(18), dp(6), dp(18))
+            setPadding(dp(6), dp(22), dp(6), dp(22))
         }
         side.addView(ImageView(this).apply {
             setImageResource(R.drawable.ic_logo)
             layoutParams = LinearLayout.LayoutParams(dp(34), dp(34))
                 .apply { gravity = Gravity.CENTER_HORIZONTAL }
         })
-        side.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(1, dp(16))
-        })
-        listOf("Home", "Hits", "Mods", "Done", "Spin", "Procs", "Come").forEach {
-            side.addView(navItem(it))
-        }
-        row.addView(side, LinearLayout.LayoutParams(dp(84), ViewGroup.LayoutParams.MATCH_PARENT))
+        side.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(22)) })
+        listOf("Home", "Games", "Mods", "Logs", "Settings").forEach { side.addView(navItem(it)) }
+        row.addView(side, LinearLayout.LayoutParams(dp(92), ViewGroup.LayoutParams.MATCH_PARENT))
 
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        col.addView(TextView(this).apply {
-            text = "Dashboard"; setTextColor(TEXT); textSize = 22f
-            setPadding(dp(16), dp(16), dp(16), dp(6))
-        })
-        col.addView(rateRow())
-
         content = FrameLayout(this)
         col.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-
-        logView = TextView(this).apply {
-            setTextColor(TEAL); typeface = Typeface.MONOSPACE; textSize = 11f
+        statusView = TextView(this).apply {
+            setTextColor(TEAL); typeface = Typeface.MONOSPACE; textSize = 10f
             setBackgroundColor(Color.parseColor("#05070A"))
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.START
+            text = "ready"
         }
-        col.addView(logView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96)))
-
+        col.addView(statusView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         return row
     }
 
     private fun navItem(name: String) = TextView(this).apply {
-        text = name; setTextColor(MUTED); textSize = 12f
-        gravity = Gravity.CENTER
-        setPadding(0, dp(12), 0, dp(12))
+        text = name; setTextColor(MUTED); textSize = 13f
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(12), dp(13), dp(12), dp(13))
         setOnClickListener { screen(name) }
     }
 
-    private fun rateRow(): View {
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), 0, dp(16), dp(10))
+    private fun screen(name: String) {
+        content.removeAllViews()
+        val v = when (name) {
+            "Home" -> homeScreen()
+            "Games" -> gamesScreen()
+            "Mods" -> modsScreen()
+            "Logs" -> logsScreen()
+            else -> settingsScreen()
         }
-        wrap.addView(TextView(this).apply {
-            text = "Ads / min"; setTextColor(TEXT); textSize = 15f
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-
-        val bar = SeekBar(this).apply {
-            max = 9900; progress = adsPerMin - 100
-        }
-        val value = TextView(this).apply {
-            text = "$adsPerMin"; setTextColor(BG); textSize = 13f
-            setPadding(dp(10), dp(4), dp(10), dp(4))
-            background = rounded(TEAL, 20)
-        }
-        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar?, p: Int, f: Boolean) {
-                adsPerMin = p + 100
-                value.text = "$adsPerMin"
-                Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
-            }
-            override fun onStartTrackingTouch(sb: SeekBar?) {}
-            override fun onStopTrackingTouch(sb: SeekBar?) {}
-        })
-        wrap.addView(bar, LinearLayout.LayoutParams(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT))
-        wrap.addView(value)
-        return wrap
+        content.addView(v)
     }
 
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
         setColor(color); cornerRadius = dp(radius).toFloat()
     }
 
-    private fun screen(name: String) {
-        content.removeAllViews()
-        when (name) {
-            "Home" -> content.addView(libraryScreen())
-            "Mods", "Hits", "Spin", "Done" -> content.addView(modsScreen())
-            else -> content.addView(placeholder(name))
-        }
+    private fun title(t: String) = TextView(this).apply {
+        text = t; setTextColor(TEXT); textSize = 22f
+        setPadding(0, 0, 0, dp(12))
     }
 
-    private fun libraryScreen(): View {
+    private fun card(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        background = rounded(CARD, 16)
+        setPadding(dp(16), dp(16), dp(16), dp(16))
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(12) }
+    }
+
+    private fun pill(label: String, bg: Int, fg: Int, onTap: () -> Unit) = TextView(this).apply {
+        text = label; setTextColor(fg); textSize = 12f
+        gravity = Gravity.CENTER
+        setPadding(dp(16), dp(9), dp(16), dp(9))
+        background = rounded(bg, 20)
+        isClickable = true
+        setOnClickListener { onTap() }
+    }
+
+    private fun homeScreen(): View {
         val v = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), 0, dp(16), dp(8))
+            setPadding(dp(20), dp(20), dp(20), dp(20))
         }
+        v.addView(TextView(this).apply { text = "Welcome back,"; setTextColor(MUTED); textSize = 14f })
         v.addView(TextView(this).apply {
-            text = "App Library"; setTextColor(TEXT); textSize = 17f
-            setPadding(0, dp(4), 0, dp(6))
+            text = "Player"; setTextColor(TEXT); textSize = 26f
+            setPadding(0, 0, 0, dp(18))
         })
-        val search = EditText(this).apply { hint = "Search apps or packages" }
+
+        val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        stats.addView(statCard("Ads / min", "$adsPerMin"), weight())
+        stats.addView(statCard("Mode", if (armMode) "ARM" else "x86"), weight())
+        stats.addView(statCard("Root", "OK"), weight())
+        v.addView(stats)
+
+        v.addView(space(16))
+        v.addView(linkCard("Games", "Pick a game and inject", "Games"))
+        v.addView(linkCard("Mods", "Ads Bypass #1 / #2", "Mods"))
+        v.addView(linkCard("Logs", "Live injection console", "Logs"))
+        return wrap(v)
+    }
+
+    private fun weight() = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        .apply { rightMargin = dp(10) }
+
+    private fun statCard(label: String, value: String): View {
+        val c = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(CARD, 14)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+        }
+        c.addView(TextView(this).apply { text = label; setTextColor(MUTED); textSize = 11f })
+        c.addView(TextView(this).apply { text = value; setTextColor(TEAL); textSize = 20f })
+        return c
+    }
+
+    private fun linkCard(t: String, sub: String, target: String): View {
+        val c = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(CARD, 16)
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(12) }
+            isClickable = true
+            setOnClickListener { screen(target) }
+        }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(TextView(this).apply { text = t; setTextColor(TEXT); textSize = 16f })
+        col.addView(TextView(this).apply { text = sub; setTextColor(MUTED); textSize = 12f })
+        c.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        c.addView(TextView(this).apply { text = ">"; setTextColor(TEAL); textSize = 18f })
+        return c
+    }
+
+    private fun gamesScreen(): View {
+        val v = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+        }
+        v.addView(title("Games"))
+
+        val search = EditText(this).apply { hint = "Search apps" }
         v.addView(search)
+
+        val manual = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        val pkgField = EditText(this).apply { hint = "or type package name" }
+        manual.addView(pkgField, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        manual.addView(pill("Inject", TEAL, BG) { inject(pkgField.text.toString().trim()) })
+        v.addView(manual)
+
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         v.addView(ScrollView(this).apply { addView(list) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -176,112 +234,169 @@ class MainActivity : AppCompatActivity() {
         return v
     }
 
-    private fun abiOf(ai: ApplicationInfo): String {
-        return try {
-            (ApplicationInfo::class.java.getField("primaryCpuAbi").get(ai) as? String) ?: ""
-        } catch (e: Exception) { "" }
-    }
-
     private fun appRow(ai: ApplicationInfo): View {
         val pm = packageManager
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = rounded(CARD, 14)
-            setPadding(dp(10), dp(10), dp(10), dp(10))
+            setPadding(dp(12), dp(12), dp(12), dp(12))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8) }
         }
         row.addView(ImageView(this).apply {
             setImageDrawable(pm.getApplicationIcon(ai))
-            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+            layoutParams = LinearLayout.LayoutParams(dp(38), dp(38))
         })
         val mid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), 0, 0, 0)
+            setPadding(dp(12), 0, dp(8), 0)
         }
         mid.addView(TextView(this).apply {
             text = pm.getApplicationLabel(ai); setTextColor(TEXT); textSize = 14f
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.END
         })
         mid.addView(TextView(this).apply {
-            text = ai.packageName; setTextColor(MUTED); textSize = 11f
-        })
-        val abi = abiOf(ai)
-        mid.addView(TextView(this).apply {
-            text = if (abi.contains("arm")) "arm64-v8a" else abi
-            setTextColor(TEAL); textSize = 11f
+            text = ai.packageName; setTextColor(MUTED); textSize = 10f
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.END
         })
         row.addView(mid, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(Button(this).apply {
-            text = "Launch & Inject"
-            setOnClickListener { launchAndInject(ai.packageName, abi.contains("arm")) }
-        })
+        row.addView(pill("Inject", TEAL, BG) { inject(ai.packageName) })
         return row
     }
 
     private fun modsScreen(): View {
         val v = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), 0, dp(16), dp(8))
+            setPadding(dp(20), dp(20), dp(20), dp(20))
         }
-        v.addView(TextView(this).apply {
-            text = "Mods, Profile"; setTextColor(TEXT); textSize = 17f
-            setPadding(0, dp(4), 0, dp(8))
+        v.addView(title("Mods"))
+
+        val rateCard = card()
+        rateCard.addView(TextView(this).apply { text = "Ads / min"; setTextColor(TEXT); textSize = 15f })
+        val valLbl = TextView(this).apply { text = "$adsPerMin"; setTextColor(TEAL); textSize = 20f }
+        rateCard.addView(valLbl)
+        rateCard.addView(SeekBar(this).apply {
+            max = 9900; progress = adsPerMin - 100
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, f: Boolean) {
+                    adsPerMin = p + 100
+                    valLbl.text = "$adsPerMin"
+                    Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
+            })
         })
-        listOf("Ads Bypass #1", "Ads Bypass #2").forEachIndexed { i, title ->
+        v.addView(rateCard)
+
+        listOf("Ads Bypass #1", "Ads Bypass #2").forEachIndexed { i, t ->
             val c = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 background = rounded(CARD, 16)
-                setPadding(dp(14), dp(16), dp(14), dp(16))
+                setPadding(dp(16), dp(16), dp(16), dp(16))
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { bottomMargin = dp(12) }
             }
-            c.addView(TextView(this).apply {
-                text = title; setTextColor(TEXT); textSize = 16f
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            c.addView(Button(this).apply {
-                text = "Send"
-                background = rounded(TEAL, 22)
-                setTextColor(BG)
-                setOnClickListener {
-                    Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
-                    Frida.post("{\"cmd\":\"mod\",\"n\":${i + 1}}")
-                    toast("Sent $title @ $adsPerMin/min")
-                }
+            c.addView(TextView(this).apply { text = t; setTextColor(TEXT); textSize = 16f },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            c.addView(pill("Send", TEAL, BG) {
+                Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
+                Frida.post("{\"cmd\":\"mod\",\"n\":${i + 1}}")
+                toast("Sent $t")
             })
             v.addView(c)
         }
         return v
     }
 
-    private fun placeholder(name: String) = TextView(this).apply {
-        text = "$name - coming up"; setTextColor(MUTED)
-        setPadding(dp(16), dp(16), dp(16), dp(16))
+    private fun logsScreen(): View {
+        val v = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+        }
+        v.addView(title("Logs"))
+        logView = TextView(this).apply {
+            setTextColor(TEAL); typeface = Typeface.MONOSPACE; textSize = 11f
+            setBackgroundColor(Color.parseColor("#05070A"))
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        v.addView(ScrollView(this).apply { addView(logView) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        return v
     }
 
-    private fun launchAndInject(pkg: String, arm: Boolean) {
+    private fun settingsScreen(): View {
+        val v = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+        }
+        v.addView(title("Settings"))
+
+        val d = card()
+        d.addView(TextView(this).apply { text = "Injection delay"; setTextColor(MUTED); textSize = 12f })
+        val dl = TextView(this).apply { text = "${injectDelay}s"; setTextColor(TEAL); textSize = 22f }
+        d.addView(dl)
+        val dRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        dRow.addView(pill("-", CARD, TEXT) {
+            if (injectDelay > 0) injectDelay--; dl.text = "${injectDelay}s"
+        })
+        dRow.addView(space(10))
+        dRow.addView(pill("+", CARD, TEXT) {
+            if (injectDelay < 30) injectDelay++; dl.text = "${injectDelay}s"
+        })
+        d.addView(dRow)
+        v.addView(d)
+
+        val a = card()
+        a.addView(TextView(this).apply { text = "ARM translator (emulators)"; setTextColor(TEXT); textSize = 15f })
+        val sw = Switch(this).apply { isChecked = armMode }
+        sw.setOnCheckedChangeListener { _, b -> armMode = b }
+        a.addView(sw)
+        v.addView(a)
+
+        val i = card()
+        i.addView(TextView(this).apply { text = "AdTurbo"; setTextColor(TEXT); textSize = 15f })
+        i.addView(TextView(this).apply {
+            text = "Frida-based ad bypass. Root required."; setTextColor(MUTED); textSize = 12f
+        })
+        v.addView(i)
+        return v
+    }
+
+    private fun wrap(v: View) = ScrollView(this).apply { addView(v) }
+    private fun space(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(h)) }
+
+    private fun abiOf(ai: ApplicationInfo): String {
+        return try {
+            (ApplicationInfo::class.java.getField("primaryCpuAbi").get(ai) as? String) ?: ""
+        } catch (e: Exception) { "" }
+    }
+
+    private fun inject(pkg: String) {
+        if (pkg.isEmpty()) { toast("enter a package"); return }
+        if (::logView.isInitialized) logView.append(">> inject $pkg\n")
+        val arm = armMode
+        val abi = if (arm) "arm64-v8a" else "x86_64"
         try {
             packageManager.getLaunchIntentForPackage(pkg)?.let {
                 it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(it)
             }
         } catch (e: Exception) {}
-        content.postDelayed({ inject(pkg, arm) }, 2500)
-    }
-
-    private fun inject(pkg: String, arm: Boolean) {
-        val abi = if (arm) "arm64-v8a" else "x86_64"
-        toast("Injecting $pkg ($abi)")
-        try {
-            val server = installServer(abi)
-            root.run("$server &")
-            val agent = assets.open("agent.js").bufferedReader().readText()
-            Frida.attach(pkg, agent)
-            Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
-            startService(Intent(this, OverlayService::class.java))
-        } catch (e: Exception) { toast("ERROR: ${e.message}") }
+        content.postDelayed({
+            try {
+                val server = installServer(abi)
+                root.run("$server &")
+                val agent = assets.open("agent.js").bufferedReader().readText()
+                Frida.attach(pkg, agent)
+                Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
+                startService(Intent(this, OverlayService::class.java))
+                toast("injected $pkg")
+            } catch (e: Exception) { toast("ERROR: ${e.message}") }
+        }, (injectDelay * 1000).toLong())
     }
 
     private fun installServer(abi: String): String {
