@@ -176,6 +176,12 @@ class MainActivity : AppCompatActivity() {
         return v
     }
 
+    private fun abiOf(ai: ApplicationInfo): String {
+        return try {
+            (ApplicationInfo::class.java.getField("primaryCpuAbi").get(ai) as? String) ?: ""
+        } catch (e: Exception) { "" }
+    }
+
     private fun appRow(ai: ApplicationInfo): View {
         val pm = packageManager
         val row = LinearLayout(this).apply {
@@ -201,7 +207,7 @@ class MainActivity : AppCompatActivity() {
         mid.addView(TextView(this).apply {
             text = ai.packageName; setTextColor(MUTED); textSize = 11f
         })
-        val abi = ai.primaryCpuAbi ?: "?"
+        val abi = abiOf(ai)
         mid.addView(TextView(this).apply {
             text = if (abi.contains("arm")) "arm64-v8a" else abi
             setTextColor(TEAL); textSize = 11f
