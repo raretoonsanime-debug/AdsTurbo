@@ -45,25 +45,30 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Thread.setDefaultUncaughtExceptionHandler { _, e ->
-            val msg = "CRASH: ${e.javaClass.simpleName}: ${e.message}"
+            var c: Throwable? = e
+            while (c?.cause != null) c = c.cause
+            val msg = "CRASH: " + c?.javaClass?.simpleName + ": " + c?.message
             android.util.Log.e("AdTurbo", msg, e)
             try { Toast.makeText(applicationContext, msg, Toast.LENGTH_LONG).show() } catch (_: Throwable) {}
-            try { File(filesDir, "crash.txt").writeText(msg + "\n" + e.stackTraceToString()) } catch (_: Throwable) {}
+            try { File(getExternalFilesDir(null), "crash.txt").writeText(msg + "\n\n" + e.stackTraceToString()) } catch (_: Throwable) {}
             android.os.Process.killProcess(android.os.Process.myPid())
         }
         try {
             Frida.logListener = { line -> runOnUiThread {
                 logView?.append("$line\n")
-                statusView.text = line
+                statusView?.text = line
             } }
         } catch (e: Throwable) {
             nativeOk = false
             nativeErr = e.javaClass.simpleName + ": " + e.message
         }
-        setContentView(build())
-        askOverlay()
-        screen("Home")
-        if (nativeOk) checkRootAsync() else statusView.text = "native lib failed: $nativeErr"
+        val rv = try { build() } catch (e: Throwable) { fallback("UI build failed: " + e.message) }
+        setContentView(rv)
+        try { askOverlay() } catch (_: Throwable) {}
+        try { screen("Home") } catch (e: Throwable) {
+            try { content.addView(fallback("screen failed: " + e.message)) } catch (_: Throwable) {}
+        }
+        if (nativeOk) checkRootAsync() else statusView?.text = "native lib failed: $nativeErr"
     }
 
     private fun build(): View {
@@ -84,14 +89,15 @@ class MainActivity : AppCompatActivity() {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content = FrameLayout(this)
         col.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        statusView = TextView(this).apply {
+        val sv = TextView(this).apply {
             setTextColor(TEAL); typeface = Typeface.MONOSPACE; textSize = 10f
             setBackgroundColor(Color.parseColor("#05070A"))
             setPadding(dp(12), dp(7), dp(12), dp(7))
             maxLines = 1; ellipsize = TextUtils.TruncateAt.START
             text = "checking root…"
         }
-        col.addView(statusView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        statusView = sv
+        col.addView(sv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         return row
     }
@@ -317,12 +323,13 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(20), dp(20), dp(20))
         }
         v.addView(title("Logs"))
-        logView = TextView(this).apply {
+        val lv = TextView(this).apply {
             setTextColor(TEAL); typeface = Typeface.MONOSPACE; textSize = 11f
             setBackgroundColor(Color.parseColor("#05070A"))
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        v.addView(ScrollView(this).apply { addView(logView) },
+        logView = lv
+        v.addView(ScrollView(this).apply { addView(lv) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         return v
     }
@@ -362,16 +369,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun wrap(v: View) = ScrollView(this).apply { addView(v) }
+    private fun fallback(msg: String) = TextView(this).apply {
+        text = msg; setTextColor(RED); setPadding(dp(20), dp(20), dp(20), dp(20))
+    }
     private fun space(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(h)) }
 
     private fun checkRootAsync() {
-        statusView.text = "checking root…"
+        statusView?.text = "checking root…"
         Thread {
             val ok = try { root.run("id").contains("uid=0") } catch (e: Exception) { false }
             rootOk = ok
             runOnUiThread {
-                statusView.text = if (ok) "root: granted" else "root: DENIED — grant root to AdTurbo"
-                statusView.setTextColor(if (ok) TEAL else RED)
+                statusView?.text = if (ok) "root: granted" else "root: DENIED — grant root to AdTurbo"
+                statusView?.setTextColor(if (ok) TEAL else RED)
                 rootStatView?.text = if (ok) "granted" else "DENIED"
                 rootStatView?.setTextColor(if (ok) TEAL else RED)
             }
@@ -399,12 +409,12 @@ class MainActivity : AppCompatActivity() {
                 if (res == "ok") {
                     Frida.post("{\"cmd\":\"rate\",\"v\":$adsPerMin}")
                     toast("Injected OK ✓  panel is on the game")
-                    statusView.text = "injected $pkg"
+                    statusView?.text = "injected $pkg"
                     try { startForegroundService(Intent(this, OverlayService::class.java)) }
                     catch (e: Exception) { toast("overlay: ${e.message}") }
                 } else {
                     toast("Inject FAILED: $res")
-                    statusView.text = "failed: $res"
+                    statusView?.text = "failed: $res"
                 }
             } catch (e: Exception) { toast("ERROR: ${e.message}") }
         }, (injectDelay * 1000).toLong())
